@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::Cursor};
 
 use base64::{Engine as _, engine::general_purpose};
 use gloo::file::{File, callbacks::FileReader};
-use gloo_console::{info};
+use gloo_console::{info, error};
 use image::{EncodableLayout, GenericImageView, ImageFormat, DynamicImage};
 use web_sys::{DragEvent, Event, FileList, HtmlInputElement};
 use yew::{Callback, Component, Context, html, TargetCast, Properties};
@@ -147,7 +147,7 @@ impl Component for App {
 
     fn view(&self, ctx: &Context<Self>) -> yew::Html {
         html! {
-            <div id="wrapper" converting={true}>
+            <div id="wrapper">
                 <p id="title">{"Convert your pictures"}</p>
                 <div id="upload-boxes">
                     <label for="tile-upload">
@@ -307,11 +307,23 @@ impl App {
         let mut result = Vec::new();
         if let Some(tile) = tile {
             info!("Loading tile");
-            let tile = image::load_from_memory_with_format(&tile.data, ImageFormat::from_mime_type(&tile.file_type).unwrap()).unwrap();
-            for file in files {
-                result.push(Self::convert(file, tile.clone()));
+            let tile = image::load_from_memory(&tile.data);
+            match tile {
+                Ok(tile) => {
+                    info!("Tile loaded");
+                    let tile = tile.resize(256, 256, image::imageops::FilterType::Nearest);
+                    let tile = tile.to_rgba8();
+                    let tile = image::DynamicImage::ImageRgba8(tile);
+                    for file in files {
+                        result.push(Self::convert(file, tile.clone()));
+                    }
+                    Msg::ConvertedFiles(result)
+                }
+                Err(e) => {
+                    error!(format!("Error loading tile: {}", e));
+                    Msg::NoOp
+                }
             }
-            Msg::ConvertedFiles(result)
         } else {
             Msg::NoOp
         }
