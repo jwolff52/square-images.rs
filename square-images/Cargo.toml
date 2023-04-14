@@ -1,5 +1,5 @@
 [package]
-name = "square-images"
+name = "square-images-webapp"
 version = "0.1.0"
 edition = "2021"
 authors = ["James Wolff <james.wolff0@gmail.com>"]
@@ -11,7 +11,13 @@ license = "MIT or Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-web-view = "0.7.3"
-hyper = "0.14.26"
-rust-embed = "6.6.1"
-futures = "0.3.28"
+base64 = "0.21.0"
+gloo = "0.8.0"
+js-sys = "0.3.61"
+yew = { version = "0.20.0", features = ["csr"] }
+gloo-console = "0.2.3"
+image = "0.24.6"
+
+[dependencies.web-sys]
+version = "0.3.61"
+features = ["File", "DragEvent", "DataTransfer"]
