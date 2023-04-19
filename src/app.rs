@@ -1,11 +1,20 @@
 use std::{collections::HashMap, io::Cursor};
 
 use base64::{Engine as _, engine::general_purpose};
-use gloo::file::{File, callbacks::FileReader};
 use gloo_console::{info, error};
+use gloo_file::{File, callbacks::FileReader};
 use image::{EncodableLayout, GenericImageView, ImageFormat, DynamicImage};
+
 use web_sys::{DragEvent, Event, FileList, HtmlInputElement};
-use yew::{Callback, Component, Context, html, TargetCast, Properties};
+use wasm_bindgen::prelude::*;
+use yew::prelude::*;
+use yew_bootstrap::{util::{include_cdn, include_cdn_js, Color}, component::Spinner};
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "tauri"])]
+    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
+}
 
 #[derive(Clone)]
 struct FileDetails {
@@ -28,9 +37,10 @@ pub enum Msg {
     NoOp,
 }
 
-#[derive(Clone, Default, PartialEq, Properties)]
+#[derive(Clone, Debug, Default, PartialEq, Properties)]
 pub struct Props {
     converting: bool,
+    loading: bool,
 }
 
 pub struct App {
@@ -38,6 +48,7 @@ pub struct App {
     files: Vec<FileDetails>,
     tile: Option<FileDetails>,
     new_files: Vec<FileDetails>,
+    props: Props,
 }
 
 impl Component for App {
@@ -50,6 +61,10 @@ impl Component for App {
             files: Vec::default(),
             tile: None,
             new_files: Vec::default(),
+            props: Props {
+                converting: false,
+                loading: true,
+            },
         }
     }
 
@@ -64,6 +79,7 @@ impl Component for App {
                             data,
                         });
                         self.readers.remove(&name);
+                        self.props.loading = !self.readers.is_empty();
                     }
                     FileType::File => {
                         self.files.push(FileDetails {
@@ -72,6 +88,7 @@ impl Component for App {
                             data,
                         });
                         self.readers.remove(&name);
+                        self.props.loading = !self.readers.is_empty();
                     }
                     FileType::Processed => {
                         self.new_files.push(FileDetails {
@@ -80,11 +97,13 @@ impl Component for App {
                             data,
                         });
                         self.readers.remove(&name);
+                        self.props.converting = !self.readers.is_empty();
                     }
                 }
                 true
             }
             Msg::Files(files) => {
+                self.props.loading = true;
                 for file in files {
                     let name = file.name();
                     let file_type = file.raw_mime_type();
@@ -93,7 +112,7 @@ impl Component for App {
                         let link = ctx.link().clone();
                         let name = name.clone();
 
-                        gloo::file::callbacks::read_as_bytes(&file, move |res| {
+                        gloo_file::callbacks::read_as_bytes(&file, move |res| {
                             link.send_message(Msg::Loaded(name, file_type, res.expect("failed to read file"), FileType::File))
                         })
                     };
@@ -105,6 +124,7 @@ impl Component for App {
             Msg::Tile(file) => {
                 match file {
                     Some(file) => {
+                        self.props.loading = true;
                         let name = file.name();
                         let file_type = file.raw_mime_type();
 
@@ -112,7 +132,7 @@ impl Component for App {
                             let link = ctx.link().clone();
                             let name = name.clone();
 
-                            gloo::file::callbacks::read_as_bytes(&file, move |res| {
+                            gloo_file::callbacks::read_as_bytes(&file, move |res| {
                                 link.send_message(Msg::Loaded(name, file_type, res.expect("failed to read file"), FileType::Tile))
                             })
                         };
@@ -126,6 +146,7 @@ impl Component for App {
                 }
             }
             Msg::ConvertedFiles(files) => {
+              self.props.converting = true;
                 for file in files {
                     let name = file.name();
                     let file_type = file.raw_mime_type();
@@ -133,7 +154,7 @@ impl Component for App {
                         let link = ctx.link().clone();
                         let name = name.clone();
 
-                        gloo::file::callbacks::read_as_bytes(&file, move |res| {
+                        gloo_file::callbacks::read_as_bytes(&file, move |res| {
                             link.send_message(Msg::Loaded(name, file_type, res.expect("failed to read file"), FileType::Processed))
                         })
                     };
@@ -146,12 +167,14 @@ impl Component for App {
     }
 
     fn view(&self, ctx: &Context<Self>) -> yew::Html {
+        info!(format!("{:#?}", self.props));
         html! {
             <div id="wrapper">
+                {include_cdn()}
                 <p id="title">{"Convert your pictures"}</p>
                 <div id="upload-boxes">
                     <label for="tile-upload">
-                        <div id="tile-drop-container"
+                        <div class="my-container"
                             ondrop={ctx.link().callback(|event: DragEvent| {
                                 event.prevent_default();
                                 let files = event.data_transfer().unwrap().files();
@@ -164,28 +187,31 @@ impl Component for App {
                                 event.prevent_default();
                             })}
                         >
-                            <i class="fa fa-cloud-upload"></i>
                             <h4>{"Upload Tile Images"}</h4>
-                            <p>{"Drag and drop file here"}</p>
-                            <p>{"or"}</p>
-                            <p>{"Click to select file"}</p>
+                            <p>{"Drag and drop file here"}<br/>
+                            {"or"}<br/>
+                            {"Click to select file"}</p>
                         </div>
                     </label>
                     <div
-                        id="button-container"
+                        class="my-container"
                         onclick={
+                          if self.props.loading || self.props.converting {
+                            Callback::noop()
+                          } else {
                             let files = self.files.clone();
                             let tile = self.tile.clone();
                             let props = ctx.props().clone();
                             ctx.link().callback(move |_| {
                                 Self::convert_files(files.clone(), tile.clone(), props.converting)
                             })
+                          }
                         }
                     >
-                        {"Convert"}
+                        {Self::button_text(self.props.clone())}
                     </div>
                     <label for="file-upload">
-                        <div id="drop-container"
+                        <div class="my-container"
                             ondrop={ctx.link().callback(|event: DragEvent| {
                                 event.prevent_default();
                                 let files = event.data_transfer().unwrap().files();
@@ -198,11 +224,10 @@ impl Component for App {
                                 event.prevent_default();
                             })}
                         >
-                            <i class="fa fa-cloud-upload"></i>
                             <h4>{"Upload Original Images"}</h4>
-                            <p>{"Drag and drop files here"}</p>
-                            <p>{"or"}</p>
-                            <p>{"Click to select files"}</p>
+                            <p>{"Drag and drop files here"}<br/>
+                            {"or"}<br/>
+                            {"Click to select files"}</p>
                         </div>
                     </label>
                 </div>
@@ -233,6 +258,7 @@ impl Component for App {
                     { for self.files.iter().map(|f| Self::view_file(f, FileType::File)) }
                     { for self.new_files.iter().map(|f| Self::view_file(f, FileType::Processed))}
                 </div>
+                {include_cdn_js()}
             </div>
         }
     }
@@ -315,7 +341,7 @@ impl App {
                     let tile = tile.to_rgba8();
                     let tile = image::DynamicImage::ImageRgba8(tile);
                     for file in files {
-                        result.push(Self::convert(file, tile.clone()));
+                      result.push(Self::convert(file, tile.clone()));
                     }
                     Msg::ConvertedFiles(result)
                 }
@@ -329,7 +355,7 @@ impl App {
         }
     }
 
-    fn convert(file: FileDetails, tile: DynamicImage) -> gloo::file::File {
+    fn convert(file: FileDetails, tile: DynamicImage) -> gloo_file::File {
         info!(format!("Loading file: {}", file.name));
         let old = image::load_from_memory_with_format(&file.data, ImageFormat::from_mime_type(&file.file_type).unwrap()).unwrap();
         let (width, height) = old.dimensions();
@@ -351,6 +377,26 @@ impl App {
         new.write_to(&mut new_buffer, image::ImageOutputFormat::Png).unwrap();
         
         info!("Pushing new file to result");
-        gloo::file::File::new_with_options::<&[u8]>(&file.name, new_buffer.into_inner().as_bytes(), Some(&file.file_type), None)
+        gloo_file::File::new_with_options::<&[u8]>(&file.name, new_buffer.into_inner().as_bytes(), Some(&file.file_type), None)
+    }
+
+    fn button_text(props: Props) -> Html {
+        if props.loading {
+            html_nested!(
+                <>
+                    <Spinner style={Color::Primary} />
+                    <p>{"Loading"}</p>
+                </>
+            )
+          } else if props.converting {
+            html_nested!(
+                <>
+                    <Spinner style={Color::Primary} />
+                    <p>{"Converting"}</p>
+                </>
+            )
+          } else {
+            html_nested!(<p>{"Convert"}</p>)
+          }
     }
 }

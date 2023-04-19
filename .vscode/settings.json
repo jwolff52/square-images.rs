@@ -1,6 +1,5 @@
 {
-  "rust-analyzer.linkedProjects": [
-    "./Cargo.toml",
-    "./square-images/Cargo.toml"
-  ]
+  "emmet.includeLanguages": {
+    "rust": "html"
+  },
 }
